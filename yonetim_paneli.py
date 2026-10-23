@@ -1,5 +1,6 @@
 import streamlit as st
 import gspread
+import json
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 
@@ -17,18 +18,8 @@ if girilen_sifre == sifre:
     
     try:
         # Bağlantı kimliklerini Streamlit panelinden çeker
-        creds_dict = {
-            "type": st.secrets["type"],
-            "project_id": st.secrets["project_id"],
-            "private_key_id": st.secrets["private_key_id"],
-            "private_key": st.secrets["private_key"],
-            "client_email": st.secrets["client_email"],
-            "client_id": st.secrets["client_id"],
-            "auth_uri": st.secrets["auth_uri"],
-            "token_uri": st.secrets["token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["client_x509_cert_url"]
-        }
+        # google_json içindeki metni alıp sisteme okutur
+        creds_dict = json.loads(st.secrets["google_json"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
 
