@@ -24,8 +24,8 @@ if girilen_sifre == sifre:
         client = gspread.authorize(creds)
 
         # İki farklı deponun verilerini arka planda okur
-        gida_veriler = client.open("MİDES - Gıda Deposu").sheet1.get_all_records()
-        temizlik_veriler = client.open("MİDES - Temizlik Deposu").sheet1.get_all_records()
+        gida_veriler = client.open("MİDES - Gıda Deposu").get_worksheet(0).get_all_records()
+        temizlik_veriler = client.open("MİDES - Temizlik Deposu").get_worksheet(0).get_all_records()
 
         # Sekmeli yapı ile gösterim
         sekme1, sekme2 = st.tabs(["📦 Gıda Deposu Envanteri", "🧹 Temizlik Deposu Envanteri"])
