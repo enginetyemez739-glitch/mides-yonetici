@@ -6,78 +6,84 @@ import json
 from datetime import datetime
 
 st.set_page_config(page_title="MİDES - Yönetici Paneli", layout="wide")
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-# Yöneticinin kullanacağı tek şifre
-sifre = "Yonetici5307" 
-girilen_sifre = st.text_input("Ana Panel Şifresini Girin:", type="password")
+if "giris_basarili" not in st.session_state: st.session_state.giris_basarili = False
+if "kullanici_adi" not in st.session_state: st.session_state.kullanici_adi = ""
+if "sifre_degistirme_modu" not in st.session_state: st.session_state.sifre_degistirme_modu = False
 
-if girilen_sifre == sifre:
-    st.title("🛡️ MİDES - Ana Yönetim ve Gözlem Paneli")
-    st.markdown("Birlik bünyesindeki tüm depoların güncel durumları ve kritik uyarılar aşağıda sunulmuştur.")
+try:
+    creds_dict = json.loads(st.secrets["google_json"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    kullanici_tablosu = client.open("MİDES - Kullanıcılar").get_worksheet(0)
+    df_kullanicilar = pd.DataFrame(kullanici_tablosu.get_all_records())
+except Exception as e:
+    st.error("Veritabanı bağlantı hatası.")
+    st.stop()
 
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    try:
-        # Google Tablolar bağlantısı
-        creds_dict = json.loads(st.secrets["google_json"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
+if st.session_state.sifre_degistirme_modu:
+    st.warning("⚠️ Şifrenizin kullanım süresi dolmuş veya değişiklik talep ettiniz.")
+    yeni_sifre = st.text_input("Yeni Şifre:", type="password")
+    yeni_sifre_tekrar = st.text_input("Yeni Şifre (Tekrar):", type="password")
+    if st.button("Şifreyi Güncelle"):
+        if yeni_sifre == yeni_sifre_tekrar and len(yeni_sifre) >= 4:
+            satir_no = df_kullanicilar[df_kullanicilar['Kullanıcı Adı'] == st.session_state.kullanici_adi].index[0] + 2
+            kullanici_tablosu.update_cell(satir_no, 2, yeni_sifre)
+            kullanici_tablosu.update_cell(satir_no, 3, datetime.today().strftime('%Y-%m-%d'))
+            st.success("Şifreniz güncellendi! Sayfayı yenileyerek giriş yapın.")
+            st.session_state.sifre_degistirme_modu = False
+        else:
+            st.error("Şifreler uyuşmuyor veya çok kısa.")
+    st.stop()
 
-        # Verileri çekme (sekme ismine bakmaksızın ilk sekmeyi okur)
-        gida_veriler = client.open("MİDES - Gıda Deposu").get_worksheet(0).get_all_records()
-        temizlik_veriler = client.open("MİDES - Temizlik Deposu").get_worksheet(0).get_all_records()
+if not st.session_state.giris_basarili:
+    st.title("🔐 MİDES Yönetici Girişi")
+    kadi_input = st.text_input("Kullanıcı Adı:")
+    sifre_input = st.text_input("Şifre:", type="password")
+    if st.button("Giriş Yap"):
+        kullanici = df_kullanicilar[(df_kullanicilar['Kullanıcı Adı'] == kadi_input) & (df_kullanicilar['Şifre'] == str(sifre_input))]
+        if not kullanici.empty and kullanici['Yetki'].values[0] == "Yonetici":
+            st.session_state.kullanici_adi = kadi_input
+            son_guncelleme = pd.to_datetime(kullanici['Son Güncelleme'].values[0], errors='coerce')
+            if (datetime.today() - son_guncelleme).days >= 30:
+                st.session_state.sifre_degistirme_modu = True
+                st.rerun()
+            else:
+                st.session_state.giris_basarili = True
+                st.rerun()
+        else:
+            st.error("Hatalı giriş veya yetkisiz erişim!")
+    st.stop()
 
-        df_gida = pd.DataFrame(gida_veriler)
-        df_temizlik = pd.DataFrame(temizlik_veriler)
+col1, col2 = st.columns([8, 2])
+with col1: st.title(f"🛡️ Ana Yönetim Paneli")
+with col2:
+    if st.button("🔄 Şifremi Değiştir"):
+        st.session_state.sifre_degistirme_modu = True
+        st.rerun()
 
-        # Otomatik Uyarı Fonksiyonu
-        def uyarilari_goster(df, depo_adi):
-            if df.empty:
-                return
-                
-            bugun = pd.to_datetime(datetime.today().strftime('%Y-%m-%d'))
-            kritik_stok_siniri = 50  # Stok bu sayının altına düşerse uyarı verir
-            yaklasan_skt_gun = 30    # SKT'ye bu kadar gün kalırsa uyarı verir
+# --- VERİ ÇEKME VE UYARI EKRANI BURADAN İTİBAREN BAŞLAR ---
+try:
+    df_gida = pd.DataFrame(client.open("MİDES - Gıda Deposu").get_worksheet(0).get_all_records())
+    df_temizlik = pd.DataFrame(client.open("MİDES - Temizlik Deposu").get_worksheet(0).get_all_records())
 
-            # Kritik Stok Kontrolü
-            if 'Miktar' in df.columns:
-                df['Miktar'] = pd.to_numeric(df['Miktar'], errors='coerce').fillna(0)
-                kritik_urunler = df[df['Miktar'] < kritik_stok_siniri]
-                if not kritik_urunler.empty:
-                    st.warning(f"⚠️ *{depo_adi} Kritik Stok Uyarısı:* Aşağıdaki ürünlerin stoğu tükenmek üzere!")
-                    st.dataframe(kritik_urunler[['Ürün Adı', 'Miktar', 'Birim']], hide_index=True)
+    def uyarilari_goster(df, depo_adi):
+        if df.empty: return
+        bugun = pd.to_datetime(datetime.today().strftime('%Y-%m-%d'))
+        if 'Miktar' in df.columns:
+            df['Miktar'] = pd.to_numeric(df['Miktar'], errors='coerce').fillna(0)
+            kritik = df[df['Miktar'] < 50]
+            if not kritik.empty: st.warning(f"⚠️ {depo_adi} Kritik Stok"); st.dataframe(kritik[['Ürün Adı', 'Miktar', 'Birim']], hide_index=True)
+        if 'SKT' in df.columns:
+            df['SKT_Tarih'] = pd.to_datetime(df['SKT'], errors='coerce')
+            df['Kalan'] = (df['SKT_Tarih'] - bugun).dt.days
+            gecen = df[df['Kalan'] < 0]
+            yaklasan = df[(df['Kalan'] >= 0) & (df['Kalan'] <= 60)]
+            if not gecen.empty: st.error(f"🚨 {depo_adi} SKT İhlali"); st.dataframe(gecen[['Ürün Adı', 'SKT', 'Miktar']], hide_index=True)
+            if not yaklasan.empty: st.warning(f"⏳ {depo_adi} SKT Yaklaşan"); st.dataframe(yaklasan[['Ürün Adı', 'SKT', 'Miktar']], hide_index=True)
 
-            # SKT Kontrolü
-            if 'SKT' in df.columns:
-                df_skt = df.copy()
-                df_skt['SKT_Tarih'] = pd.to_datetime(df_skt['SKT'], errors='coerce')
-                df_skt['Kalan_Gun'] = (df_skt['SKT_Tarih'] - bugun).dt.days
-                
-                skt_gecenler = df_skt[df_skt['Kalan_Gun'] < 0]
-                skt_yaklasanlar = df_skt[(df_skt['Kalan_Gun'] >= 0) & (df_skt['Kalan_Gun'] <= yaklasan_skt_gun)]
-
-                if not skt_gecenler.empty:
-                    st.error(f"🚨 *{depo_adi} SKT Uyarısı:* Aşağıdaki ürünlerin kullanım tarihi GEÇMİŞTİR!")
-                    st.dataframe(skt_gecenler[['Ürün Adı', 'SKT', 'Miktar', 'Birim']], hide_index=True)
-                    
-                if not skt_yaklasanlar.empty:
-                    st.warning(f"⏳ *{depo_adi} SKT Yaklaşanlar:* Aşağıdaki ürünlerin kullanım tarihine {yaklasan_skt_gun} günden az kaldı!")
-                    st.dataframe(skt_yaklasanlar[['Ürün Adı', 'SKT', 'Miktar', 'Birim']], hide_index=True)
-
-        # Sekmeli yapı ve ekran yerleşimi
-        sekme1, sekme2 = st.tabs(["📦 Gıda Deposu", "🧹 Temizlik Deposu"])
-
-        with sekme1:
-            uyarilari_goster(df_gida, "Gıda Deposu")
-            st.markdown("### Tüm Gıda Envanteri")
-            st.dataframe(df_gida, use_container_width=True)
-
-        with sekme2:
-            uyarilari_goster(df_temizlik, "Temizlik Deposu")
-            st.markdown("### Tüm Temizlik Envanteri")
-            st.dataframe(df_temizlik, use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Bağlantı hatası: {e}")
-elif girilen_sifre != "":
-    st.error("Hatalı şifre girdiniz.")
+    sekme1, sekme2 = st.tabs(["📦 Gıda", "🧹 Temizlik"])
+    with sekme1: uyarilari_goster(df_gida, "Gıda"); st.dataframe(df_gida, use_container_width=True)
+    with sekme2: uyarilari_goster(df_temizlik, "Temizlik"); st.dataframe(df_temizlik, use_container_width=True)
+except Exception as e: st.error(f"Bağlantı hatası: {e}")
