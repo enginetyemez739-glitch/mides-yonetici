@@ -57,7 +57,7 @@ if not st.session_state.giris_basarili:
     st.stop()
 
 col1, col2 = st.columns([8, 2])
-with col1: st.title(f"🛡️ Ana Yönetim Paneli")
+with col1: st.title(f"🛡️ MİDES - Ana Yönetim Paneli")
 with col2:
     if st.button("🔄 Şifremi Değiştir"):
         st.session_state.sifre_degistirme_modu = True
