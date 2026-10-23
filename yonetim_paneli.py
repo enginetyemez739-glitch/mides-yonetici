@@ -37,7 +37,7 @@ if girilen_sifre == sifre:
                 
             bugun = pd.to_datetime(datetime.today().strftime('%Y-%m-%d'))
             kritik_stok_siniri = 50  # Stok bu sayının altına düşerse uyarı verir
-            yaklasan_skt_gun = 60    # SKT'ye bu kadar gün kalırsa uyarı verir
+            yaklasan_skt_gun = 30    # SKT'ye bu kadar gün kalırsa uyarı verir
 
             # Kritik Stok Kontrolü
             if 'Miktar' in df.columns:
